@@ -1,66 +1,139 @@
 #include <Arduino.h>
 #include <SoftwareSerial.h>
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+#include <DallasTemperature.h>
+#include <OneWire.h>
 
+/*Actuator pin configurations*/
+#define fanPin 8
+#define lightPin 9
+#define waterPin 10
+
+#define DHTPIN 7 //Digital pin
+#define DHTTYPE DHT11
+/*
+	DHT11 module	
+ 		left pin is data => DHTPIN
+		middle pin is Vcc(3.3v)
+		right is GND
+ */
+#define MOISTUREPIN A0 //ADC pin
+/*
+ 	Water Capacitive Sensor
+ 		Vcc(3.3v)
+ 		GND
+ 		Do is NC
+ 		Ao => MOISTUREPIN
+ */
+#define SOILTEMPPIN 6 //Digital pin
+/*
+	Soil temperature Sensor
+		red is Vcc(3.3v)
+		black is GND
+		green is data
+			green => resistor => Vcc
+			      => SOILTEMPPIN
+
+ */
+
+OneWire oneWire(SOILTEMPPIN);
+DallasTemperature sensors(&oneWire);
+DHT dht(DHTPIN, DHTTYPE);
 SoftwareSerial serialPrimary(3, 4);
 
 void readSensors();
 void actions();
 
-String currStatus;
-String idealStatus;
-// Format of Status String: "xy"
-//                       x => status of button 1
-//                       y => status of button 2
+class status_T  // Status type
+{
+ public:
+  float airHumidity;
+  float airTemp;
+  float soilMoisture;
+  float soilTemp;
+
+  status_T() {
+    airHumidity = 0;
+    airTemp = 0;
+    soilMoisture = 0;
+    soilTemp = 0;
+  }
+
+  void parseString(String str){
+    //TODO: convert string to values
+    //string in json format?
+  }
+
+  String makeString(){
+    //TODO: convert values to string
+  }
+
+  //TODO: method to read from poweron to prevent dataloss from power outage
+  //  Possible: eeprom read/write
+
+};
+
+status_T *currStatus;
+status_T *idealStatus;
+
 
 void setup() {
+  currStatus = new status_T();
+  idealStatus = new status_T();
   serialPrimary.begin(9600);
   Serial.begin(9600);
-  /*Test Mode configurations*/
-  pinMode(6, INPUT);
-  pinMode(7, INPUT);
-  pinMode(8, OUTPUT);
-  pinMode(9, OUTPUT);
-  
-  /*Change according to actual string*/
-  /*Maybe read from eeprom to avoid dataloss on poweroff*/
-  idealStatus = "11";
+  /*Sensor configurations*/
+	dht.begin();
+	sensors.begin();
+
+  /*Actuator configurations*/
+  pinMode(fanPin, OUTPUT);
+  pinMode(lightPin, OUTPUT);
+  pinMode(waterPin, OUTPUT);
 }
 
 void loop() {
   if (serialPrimary.available()) {
-    idealStatus = serialPrimary.readString();
-    Serial.print(idealStatus);
+    idealStatus->parseString(serialPrimary.readString());
   }
   readSensors();
   actions();
-  serialPrimary.print(currStatus + "\n");
+  serialPrimary.print(currStatus->makeString());
   delay(500);
 }
 
 /*Change according to actual sensors*/
 void readSensors() {
-  int button1 = digitalRead(6);
-  int button2 = digitalRead(7);
-  currStatus = "";
-  currStatus += (char)(48+button1);
-  currStatus += (char)(48+button2);
+  currStatus->airHumidity = dht.readHumidity();
+  currStatus->airTemp = dht.readTemperature();
+  currStatus->soilMoisture = (1023 - analogRead(MOISTUREPIN))/ 1023;
+  currStatus->soilTemp = sensors.getTempCByIndex(0);
 }
 
 /*Change according to actual actuators*/
 void actions() {
-  int button1 = currStatus[0];
-  int button2 = currStatus[1];
-  int idealButton1 = idealStatus[0];
-  int idealButton2 = idealStatus[1];
-
-  if (button1 != idealButton1) {
-    digitalWrite(8, HIGH);
+  if (currStatus->airHumidity > idealStatus->airHumidity){
+    //TODO
   } else {
-    digitalWrite(8, LOW);
+    //TODO
   }
-  if (button2 != idealButton2) {
-    digitalWrite(9, HIGH);
+
+  if (currStatus->airTemp > idealStatus->airTemp){
+    //TODO
   } else {
-    digitalWrite(9, LOW);
+    //TODO
+  }
+
+  if (currStatus->soilMoisture > idealStatus->soilMoisture){
+    //TODO
+  } else {
+    //TODO
+  }
+
+  if (currStatus->soilTemp > idealStatus->soilTemp){
+    //TODO
+  } else {
+    //TODO
   }
 }
