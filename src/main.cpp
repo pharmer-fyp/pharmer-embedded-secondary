@@ -1,39 +1,46 @@
-#include <Arduino.h>
-#include <SoftwareSerial.h>
 #include <Adafruit_Sensor.h>
+#include <Arduino.h>
+#include <ArduinoJson.h>
 #include <DHT.h>
 #include <DallasTemperature.h>
 #include <OneWire.h>
+#include <SoftwareSerial.h>
+
+#include "Status_T.h"
+
+#define IN_RANGE 0
+#define ABOVE_RANGE 1
+#define BELOW_RANGE -1
 
 /*Actuator pin configurations*/
 #define fanPin 8
 #define lightPin 9
 #define waterPin 10
 
-#define DHTPIN 7 //Digital pin
+#define DHTPIN 7  // Digital pin
 #define DHTTYPE DHT11
 /*
-	DHT11 module	
- 		left pin is data => DHTPIN
-		middle pin is Vcc(3.3v)
-		right is GND
+        DHT11 module
+                left pin is data => DHTPIN
+                middle pin is Vcc(3.3v)
+                right is GND
  */
-#define MOISTUREPIN A0 //ADC pin
+#define MOISTUREPIN A0  // ADC pin
 /*
- 	Water Capacitive Sensor
- 		Vcc(3.3v)
- 		GND
- 		Do is NC
- 		Ao => MOISTUREPIN
+        Water Capacitive Sensor
+                Vcc(3.3v)
+                GND
+                Do is NC
+                Ao => MOISTUREPIN
  */
-#define SOILTEMPPIN 6 //Digital pin
+#define SOILTEMPPIN 6  // Digital pin
 /*
-	Soil temperature Sensor
-		red is Vcc(3.3v)
-		black is GND
-		green is data
-			green => resistor => Vcc
-			      => SOILTEMPPIN
+        Soil temperature Sensor
+                red is Vcc(3.3v)
+                black is GND
+                green is data
+                        green => resistor => Vcc
+                              => SOILTEMPPIN
 
  */
 
@@ -42,50 +49,25 @@ DallasTemperature sensors(&oneWire);
 DHT dht(DHTPIN, DHTTYPE);
 SoftwareSerial serialPrimary(3, 4);
 
+int inTolerance(float x, float ref);
 void readSensors();
 void actions();
+void readPrimary();
+void sendPrimary();
+void parseString(String json, status_T *status);
+String makeString(status_T *status);
 
-class status_T  // Status type
-{
- public:
-  float airHumidity;
-  float airTemp;
-  float soilMoisture;
-  float soilTemp;
-
-  status_T() {
-    airHumidity = 0;
-    airTemp = 0;
-    soilMoisture = 0;
-    soilTemp = 0;
-  }
-
-  void parseString(String str){
-    //TODO: convert string to values
-    //string in json format?
-  }
-
-  String makeString(){
-    //TODO: convert values to string
-  }
-
-  //TODO: method to read from poweron to prevent dataloss from power outage
-  //  Possible: eeprom read/write
-
-};
-
-status_T *currStatus;
-status_T *idealStatus;
-
+status_T *sensorStatus;
+status_T *referenceStatus;
 
 void setup() {
-  currStatus = new status_T();
-  idealStatus = new status_T();
+  sensorStatus = new status_T();
+  referenceStatus = new status_T();
   serialPrimary.begin(9600);
   Serial.begin(9600);
   /*Sensor configurations*/
-	dht.begin();
-	sensors.begin();
+  dht.begin();
+  sensors.begin();
 
   /*Actuator configurations*/
   pinMode(fanPin, OUTPUT);
@@ -94,46 +76,106 @@ void setup() {
 }
 
 void loop() {
-  if (serialPrimary.available()) {
-    idealStatus->parseString(serialPrimary.readString());
+  while (1) {
+    readPrimary();
+    readSensors();
+    actions();
+    sendPrimary();
+    delay(500);
   }
-  readSensors();
-  actions();
-  serialPrimary.print(currStatus->makeString());
-  delay(500);
 }
 
 /*Change according to actual sensors*/
 void readSensors() {
-  currStatus->airHumidity = dht.readHumidity();
-  currStatus->airTemp = dht.readTemperature();
-  currStatus->soilMoisture = (1023 - analogRead(MOISTUREPIN))/ 1023;
-  currStatus->soilTemp = sensors.getTempCByIndex(0);
+  sensorStatus->setAirHumidity(dht.readHumidity());
+  sensorStatus->setAirTemp(dht.readTemperature());
+  sensorStatus->setSoilMoisture((1023 - analogRead(MOISTUREPIN)) / 1023);
+  sensorStatus->setSoilTemp(sensors.getTempCByIndex(0));
+}
+
+int inTolerance(float x, float ref) {  // 10% of nominal value
+  float tol;
+  tol = (ref * (1.1)) - ref;
+  if (x >= (ref - tol) && x <= (ref + tol)) {
+    return IN_RANGE;
+  }
+  if (x < (ref - tol)) {
+    return BELOW_RANGE;
+  }
+  if (x > (ref + tol)) {
+    return ABOVE_RANGE;
+  }
 }
 
 /*Change according to actual actuators*/
 void actions() {
-  if (currStatus->airHumidity > idealStatus->airHumidity){
-    //TODO
-  } else {
-    //TODO
+  int check;
+
+  check = inTolerance(sensorStatus->getAirHumidity(),
+                      referenceStatus->getAirHumidity());
+  if (check == ABOVE_RANGE) {
+    // turn fan on
+    // turn water off
+  } else if (check == BELOW_RANGE) {
+    // turn fan off
+    // turn water on
   }
 
-  if (currStatus->airTemp > idealStatus->airTemp){
-    //TODO
-  } else {
-    //TODO
+  check = inTolerance(sensorStatus->getAirTemp(),
+                      referenceStatus->getAirTemp());
+  if (check == ABOVE_RANGE) {
+    // turn fan on
+    // turn lights off
+  } else if (check == BELOW_RANGE) {
+    // turn fan off
+    // turn lights on
   }
 
-  if (currStatus->soilMoisture > idealStatus->soilMoisture){
-    //TODO
-  } else {
-    //TODO
+  check = inTolerance(sensorStatus->getSoilMoisture(),
+                      referenceStatus->getSoilMoisture());
+  if (check == ABOVE_RANGE) {
+    // turn water off
+  } else if (check == BELOW_RANGE) {
+    // turn water on
   }
 
-  if (currStatus->soilTemp > idealStatus->soilTemp){
-    //TODO
-  } else {
-    //TODO
+  check = inTolerance(sensorStatus->getSoilTemp(),
+                      referenceStatus->getSoilTemp());
+  if (check == ABOVE_RANGE) {
+    // turn fan on
+    // turn water on
+  } else if (check == BELOW_RANGE) {
+    // turn fan off
+    // turn water off
   }
 }
+
+void parseString(String json, status_T *status) {
+  StaticJsonDocument<128> doc;
+  DeserializationError error = deserializeJson(doc, json);
+  if (!error) {
+    status->setAirHumidity(doc["airHumidity"]);
+    status->setAirTemp(doc["airTemp"]);
+    status->setSoilMoisture(doc["soilMoisture"]);
+    status->setSoilTemp(doc["soilTemp"]);
+  }
+}
+
+String makeString(status_T *status) {
+  StaticJsonDocument<128> doc;
+  doc["airHumidity"] = status->getAirHumidity();
+  doc["airTemp"] = status->getAirTemp();
+  doc["soilMoisture"] = status->getSoilMoisture();
+  doc["soilTemp"] = status->getSoilTemp();
+  String result;
+  serializeJson(doc, result);
+  return result;
+}
+
+void readPrimary() {
+  if (serialPrimary.available()) {
+    parseString(serialPrimary.readString(), referenceStatus);
+  }
+}
+
+void sendPrimary() { serialPrimary.print(makeString(sensorStatus)); }
