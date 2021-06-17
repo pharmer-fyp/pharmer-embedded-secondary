@@ -2,8 +2,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
-#include <DallasTemperature.h>
-#include <OneWire.h>
 #include <SoftwareSerial.h>
 
 #include "Status_T.h"
@@ -33,19 +31,8 @@
                 Do is NC
                 Ao => MOISTUREPIN
  */
-#define SOILTEMPPIN 6  // Digital pin
-/*
-        Soil temperature Sensor
-                red is Vcc(3.3v)
-                black is GND
-                green is data
-                        green => resistor => Vcc
-                              => SOILTEMPPIN
 
- */
 
-OneWire oneWire(SOILTEMPPIN);
-DallasTemperature sensors(&oneWire);
 DHT dht(DHTPIN, DHTTYPE);
 SoftwareSerial serialPrimary(3, 4);
 
@@ -67,7 +54,6 @@ void setup() {
   Serial.begin(9600);
   /*Sensor configurations*/
   dht.begin();
-  sensors.begin();
 
   /*Actuator configurations*/
   pinMode(fanPin, OUTPUT);
@@ -81,7 +67,7 @@ void loop() {
     readSensors();
     actions();
     sendPrimary();
-    delay(500);
+    delay(5000);
   }
 }
 
@@ -90,7 +76,6 @@ void readSensors() {
   sensorStatus->setAirHumidity(dht.readHumidity());
   sensorStatus->setAirTemp(dht.readTemperature());
   sensorStatus->setSoilMoisture((1023 - analogRead(MOISTUREPIN)) / 1023);
-  sensorStatus->setSoilTemp(sensors.getTempCByIndex(0));
 }
 
 int inTolerance(float x, float ref) {  // 10% of nominal value
@@ -110,44 +95,51 @@ int inTolerance(float x, float ref) {  // 10% of nominal value
 /*Change according to actual actuators*/
 void actions() {
   int check;
-
+  int fanScore = 0;
+  int waterScore = 0;
+  int lightScore = 0;
   check = inTolerance(sensorStatus->getAirHumidity(),
                       referenceStatus->getAirHumidity());
   if (check == ABOVE_RANGE) {
-    // turn fan on
-    // turn water off
+    fanScore++;
+    waterScore--;
   } else if (check == BELOW_RANGE) {
-    // turn fan off
-    // turn water on
+    fanScore--;
+    waterScore++;
   }
 
   check = inTolerance(sensorStatus->getAirTemp(),
                       referenceStatus->getAirTemp());
   if (check == ABOVE_RANGE) {
-    // turn fan on
-    // turn lights off
+    fanScore++;
+    lightScore--;
   } else if (check == BELOW_RANGE) {
-    // turn fan off
-    // turn lights on
+    fanScore--;
+    lightScore++;
   }
 
   check = inTolerance(sensorStatus->getSoilMoisture(),
                       referenceStatus->getSoilMoisture());
   if (check == ABOVE_RANGE) {
-    // turn water off
+    waterScore--;
   } else if (check == BELOW_RANGE) {
-    // turn water on
+    waterScore++;
   }
 
-  check = inTolerance(sensorStatus->getSoilTemp(),
-                      referenceStatus->getSoilTemp());
-  if (check == ABOVE_RANGE) {
-    // turn fan on
-    // turn water on
-  } else if (check == BELOW_RANGE) {
-    // turn fan off
-    // turn water off
-  }
+  if (fanScore > 0)
+    digitalWrite(fanPin, 1);
+  else
+    digitalWrite(fanPin, 0);
+
+  if (waterScore > 0)
+    digitalWrite(waterPin, 1);
+  else
+    digitalWrite(waterPin, 0);
+
+  if (lightScore > 0)
+    digitalWrite(lightPin, 1);
+  else
+    digitalWrite(lightPin, 0);
 }
 
 void parseString(String json, status_T *status) {
@@ -157,7 +149,6 @@ void parseString(String json, status_T *status) {
     status->setAirHumidity(doc["airHumidity"]);
     status->setAirTemp(doc["airTemp"]);
     status->setSoilMoisture(doc["soilMoisture"]);
-    status->setSoilTemp(doc["soilTemp"]);
   }
 }
 
@@ -166,7 +157,6 @@ String makeString(status_T *status) {
   doc["airHumidity"] = status->getAirHumidity();
   doc["airTemp"] = status->getAirTemp();
   doc["soilMoisture"] = status->getSoilMoisture();
-  doc["soilTemp"] = status->getSoilTemp();
   String result;
   serializeJson(doc, result);
   return result;
@@ -178,4 +168,4 @@ void readPrimary() {
   }
 }
 
-void sendPrimary() { serialPrimary.print(makeString(sensorStatus)); }
+void sendPrimary() { serialPrimary.println(makeString(sensorStatus)); }
