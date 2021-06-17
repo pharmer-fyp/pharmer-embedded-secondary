@@ -90,6 +90,7 @@ int inTolerance(float x, float ref) {  // 10% of nominal value
   if (x > (ref + tol)) {
     return ABOVE_RANGE;
   }
+  return IN_RANGE;
 }
 
 /*Change according to actual actuators*/
