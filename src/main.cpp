@@ -32,7 +32,6 @@
                 Ao => MOISTUREPIN
  */
 
-
 DHT dht(DHTPIN, DHTTYPE);
 SoftwareSerial serialPrimary(3, 4);
 
@@ -46,6 +45,7 @@ String makeString(status_T *status);
 
 status_T *sensorStatus;
 status_T *referenceStatus;
+int isDeleted = 0;
 
 void setup() {
   sensorStatus = new status_T();
@@ -64,9 +64,11 @@ void setup() {
 void loop() {
   while (1) {
     readPrimary();
-    readSensors();
-    actions();
-    sendPrimary();
+    if (!isDeleted) {
+      readSensors();
+      actions();
+      sendPrimary();
+    }
     delay(5000);
   }
 }
@@ -109,8 +111,8 @@ void actions() {
     waterScore++;
   }
 
-  check = inTolerance(sensorStatus->getAirTemp(),
-                      referenceStatus->getAirTemp());
+  check =
+      inTolerance(sensorStatus->getAirTemp(), referenceStatus->getAirTemp());
   if (check == ABOVE_RANGE) {
     fanScore++;
     lightScore--;
@@ -164,8 +166,18 @@ String makeString(status_T *status) {
 }
 
 void readPrimary() {
+  String tmp;
   if (serialPrimary.available()) {
-    parseString(serialPrimary.readString(), referenceStatus);
+    tmp = serialPrimary.readString();
+    if (tmp != "deleted") {
+      parseString(tmp, referenceStatus);
+      isDeleted = 0;
+    } else {
+      isDeleted = 1;
+      digitalWrite(fanPin, 0);
+      digitalWrite(lightPin, 0);
+      digitalWrite(waterPin, 0);
+    }
   }
 }
 
