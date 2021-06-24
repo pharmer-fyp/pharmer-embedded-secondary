@@ -11,8 +11,8 @@
 #define BELOW_RANGE -1
 
 /*Actuator pin configurations*/
-#define fanPin 8
-#define lightPin 9
+#define fanPin 9
+#define lightPin 8
 #define waterPin 10
 
 #define DHTPIN 7  // Digital pin
@@ -40,12 +40,13 @@ void readSensors();
 void actions();
 void readPrimary();
 void sendPrimary();
-void parseString(String json, status_T *status);
+bool parseString(String json, status_T *status);
 String makeString(status_T *status);
 
 status_T *sensorStatus;
 status_T *referenceStatus;
 int isDeleted = 0;
+int retry = 0;
 
 void setup() {
   sensorStatus = new status_T();
@@ -63,7 +64,10 @@ void setup() {
 
 void loop() {
   while (1) {
+    Serial.println("---------");
+  retryLabel:
     readPrimary();
+    if (retry) goto retryLabel;
     if (!isDeleted) {
       readSensors();
       actions();
@@ -77,7 +81,7 @@ void loop() {
 void readSensors() {
   sensorStatus->setAirHumidity(dht.readHumidity());
   sensorStatus->setAirTemp(dht.readTemperature());
-  sensorStatus->setSoilMoisture((1023 - analogRead(MOISTUREPIN)) / 1023);
+  sensorStatus->setSoilMoisture(map(analogRead(MOISTUREPIN), 1023, 0, 1, 100));
 }
 
 int inTolerance(float x, float ref) {  // 10% of nominal value
@@ -101,8 +105,8 @@ void actions() {
   int fanScore = 0;
   int waterScore = 0;
   int lightScore = 0;
-  check = inTolerance(sensorStatus->getAirHumidity(),
-                      referenceStatus->getAirHumidity());
+  Serial.println(referenceStatus->getAirHumidity());
+  check = inTolerance(sensorStatus->getAirHumidity(), referenceStatus->getAirHumidity());
   if (check == ABOVE_RANGE) {
     fanScore++;
     waterScore--;
@@ -111,8 +115,8 @@ void actions() {
     waterScore++;
   }
 
-  check =
-      inTolerance(sensorStatus->getAirTemp(), referenceStatus->getAirTemp());
+  Serial.println(referenceStatus->getAirTemp());
+  check = inTolerance(sensorStatus->getAirTemp(), referenceStatus->getAirTemp());
   if (check == ABOVE_RANGE) {
     fanScore++;
     lightScore--;
@@ -121,23 +125,26 @@ void actions() {
     lightScore++;
   }
 
-  check = inTolerance(sensorStatus->getSoilMoisture(),
-                      referenceStatus->getSoilMoisture());
+  Serial.println(referenceStatus->getSoilMoisture());
+  check = inTolerance(sensorStatus->getSoilMoisture(), referenceStatus->getSoilMoisture());
   if (check == ABOVE_RANGE) {
     waterScore--;
   } else if (check == BELOW_RANGE) {
     waterScore++;
   }
-
+  Serial.println("scores:");
+  Serial.println(fanScore);
+  Serial.println(waterScore);
+  Serial.println(lightScore);
   if (fanScore > 0)
-    digitalWrite(fanPin, 1);
+    analogWrite(fanPin, 50);
   else
-    digitalWrite(fanPin, 0);
+    analogWrite(fanPin, 0);
 
   if (waterScore > 0)
-    digitalWrite(waterPin, 1);
+    analogWrite(waterPin, 50);
   else
-    digitalWrite(waterPin, 0);
+    analogWrite(waterPin, 0);
 
   if (lightScore > 0)
     digitalWrite(lightPin, 1);
@@ -145,40 +152,59 @@ void actions() {
     digitalWrite(lightPin, 0);
 }
 
-void parseString(String json, status_T *status) {
-  StaticJsonDocument<128> doc;
+bool parseString(String json, status_T *status) {
+  StaticJsonDocument<256> doc;
+  Serial.println(json);
   DeserializationError error = deserializeJson(doc, json);
   if (!error) {
+    Serial.println("No Parse Error");
     status->setAirHumidity(doc["airHumidity"]);
     status->setAirTemp(doc["airTemp"]);
     status->setSoilMoisture(doc["soilMoisture"]);
+    return true;
+  } else {
+    Serial.println("Parse error");
+    return false;
   }
 }
 
 String makeString(status_T *status) {
-  StaticJsonDocument<128> doc;
+  StaticJsonDocument<256> doc;
   doc["airHumidity"] = status->getAirHumidity();
   doc["airTemp"] = status->getAirTemp();
   doc["soilMoisture"] = status->getSoilMoisture();
   String result;
   serializeJson(doc, result);
+  Serial.println(result);
   return result;
 }
 
 void readPrimary() {
   String tmp;
   if (serialPrimary.available()) {
-    tmp = serialPrimary.readString();
-    if (tmp != "deleted") {
-      parseString(tmp, referenceStatus);
-      isDeleted = 0;
+    tmp = serialPrimary.readStringUntil('\n');
+    if (tmp.indexOf("deleted") < 0) {
+      if (parseString(tmp, referenceStatus)) {
+        isDeleted = 0;
+        serialPrimary.print("sss\n");
+        serialPrimary.flush();
+        retry = 0;
+      } else {
+        serialPrimary.print("fff\n");
+        serialPrimary.flush();
+        retry = 1;
+      }
     } else {
       isDeleted = 1;
-      digitalWrite(fanPin, 0);
+      analogWrite(fanPin, 0);
       digitalWrite(lightPin, 0);
-      digitalWrite(waterPin, 0);
+      analogWrite(waterPin, 0);
     }
   }
 }
 
-void sendPrimary() { serialPrimary.println(makeString(sensorStatus)); }
+void sendPrimary() {
+  serialPrimary.print(makeString(sensorStatus));
+  serialPrimary.print('\n');
+  serialPrimary.flush();
+}
