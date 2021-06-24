@@ -60,6 +60,10 @@ void setup() {
   pinMode(fanPin, OUTPUT);
   pinMode(lightPin, OUTPUT);
   pinMode(waterPin, OUTPUT);
+
+  analogWrite(fanPin, 0);
+  digitalWrite(lightPin, 0);
+  analogWrite(waterPin, 0);
 }
 
 void loop() {
