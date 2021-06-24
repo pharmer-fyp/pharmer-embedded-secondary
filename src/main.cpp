@@ -45,7 +45,7 @@ String makeString(status_T *status);
 
 status_T *sensorStatus;
 status_T *referenceStatus;
-int isDeleted = 0;
+int isDeleted = 1;
 int retry = 0;
 
 void setup() {
