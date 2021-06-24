@@ -196,6 +196,8 @@ void readPrimary() {
       }
     } else {
       isDeleted = 1;
+      serialPrimary.print("sss\n");
+      serialPrimary.flush();
       analogWrite(fanPin, 0);
       digitalWrite(lightPin, 0);
       analogWrite(waterPin, 0);
