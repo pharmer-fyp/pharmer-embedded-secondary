@@ -185,8 +185,10 @@ String makeString(status_T *status) {
 
 void readPrimary() {
   String tmp;
+  Serial.println("Reading From Primary");
   if (serialPrimary.available()) {
     tmp = serialPrimary.readStringUntil('\n');
+    Serial.println(tmp);
     if (tmp.indexOf("deleted") < 0) {
       if (parseString(tmp, referenceStatus)) {
         isDeleted = 0;
